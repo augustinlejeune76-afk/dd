@@ -1,0 +1,174 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Bluetooth micro:bit</title>
+<style>
+body {
+  background: #101827;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+  padding: 20px;
+}
+main {
+  max-width: 450px;
+  margin: 30px auto;
+  background: #1e293b;
+  padding: 25px;
+  border-radius: 18px;
+}
+button {
+  padding: 15px;
+  margin: 7px;
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  background: #2563eb;
+  font-size: 17px;
+}
+button:disabled { opacity: .4; }
+#status { color: #fbbf24; }
+#messages {
+  background: #0f172a;
+  padding: 12px;
+  border-radius: 10px;
+  min-height: 100px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+</style>
+</head>
+<body>
+<main>
+<h1>Test Bluetooth</h1>
+
+<p id="status">Non connecté</p>
+
+<button id="connect">Connecter la micro:bit</button>
+<button id="disconnect" disabled>Déconnecter</button>
+
+<hr>
+
+<button id="ping" disabled>Envoyer PING</button>
+<button id="test" disabled>Envoyer TEST</button>
+
+<h3>Messages reçus</h3>
+<div id="messages">En attente...</div>
+</main>
+
+<script>
+const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+let device;
+let rxCharacteristic;
+let txCharacteristic;
+let buffer = "";
+
+const status = document.getElementById("status");
+const messages = document.getElementById("messages");
+const connectBtn = document.getElementById("connect");
+const disconnectBtn = document.getElementById("disconnect");
+const pingBtn = document.getElementById("ping");
+const testBtn = document.getElementById("test");
+
+function log(text) {
+  messages.textContent += "\n" + text;
+}
+
+async function send(text) {
+  if (!rxCharacteristic) return;
+
+  try {
+    const data = new TextEncoder().encode(text + "\n");
+
+    if (rxCharacteristic.properties.writeWithoutResponse) {
+      await rxCharacteristic.writeValueWithoutResponse(data);
+    } else if (rxCharacteristic.properties.write) {
+      await rxCharacteristic.writeValueWithResponse(data);
+    } else {
+      throw new Error("Écriture non disponible");
+    }
+
+    log("Téléphone → " + text);
+  } catch (error) {
+    log("ERREUR : " + error.message);
+  }
+}
+
+function receive(event) {
+  const data = new TextDecoder().decode(event.target.value);
+  buffer += data;
+
+  const lines = buffer.split("\n");
+  buffer = lines.pop();
+
+  for (const line of lines) {
+    const message = line.trim();
+    if (message) log("Micro:bit → " + message);
+  }
+}
+
+async function connect() {
+  try {
+    status.textContent = "Recherche...";
+
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE] }]
+    });
+
+    device.addEventListener("gattserverdisconnected", disconnected);
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(SERVICE);
+
+    rxCharacteristic = await service.getCharacteristic(RX);
+    txCharacteristic = await service.getCharacteristic(TX);
+
+    await txCharacteristic.startNotifications();
+    txCharacteristic.addEventListener(
+      "characteristicvaluechanged", receive
+    );
+
+    status.textContent = "Connecté à " + device.name;
+    connectBtn.disabled = true;
+    disconnectBtn.disabled = false;
+    pingBtn.disabled = false;
+    testBtn.disabled = false;
+
+    messages.textContent = "Connexion réussie !";
+    await send("PING");
+
+  } catch (error) {
+    status.textContent = "Erreur : " + error.message;
+    log("Détail : " + error.message);
+  }
+}
+
+function disconnected() {
+  rxCharacteristic = null;
+  txCharacteristic = null;
+  status.textContent = "Non connecté";
+  connectBtn.disabled = false;
+  disconnectBtn.disabled = true;
+  pingBtn.disabled = true;
+  testBtn.disabled = true;
+}
+
+connectBtn.addEventListener("click", connect);
+disconnectBtn.addEventListener("click", () => {
+  if (device && device.gatt.connected) {
+    device.gatt.disconnect();
+  }
+  disconnected();
+});
+
+pingBtn.addEventListener("click", () => send("PING"));
+testBtn.addEventListener("click", () => send("TEST"));
+</script>
+</body>
+</html>
