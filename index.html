@@ -62,10 +62,10 @@ button:disabled { opacity: .4; }
 <script>
 const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 
-// Le téléphone envoie vers la micro:bit
+// Téléphone vers micro:bit
 const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
-// La micro:bit envoie vers le téléphone
+// Micro:bit vers téléphone
 const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 let device = null;
 let rxCharacteristic = null;
@@ -148,19 +148,24 @@ async function connect() {
     txCharacteristic = await service.getCharacteristic(TX);
     log("Canal de réception trouvé.");
 
-log("Notifications disponibles : " +
-    txCharacteristic.properties.notify);
+log("Notify : " + txCharacteristic.properties.notify);
+log("Indicate : " + txCharacteristic.properties.indicate);
 
-log("Indications disponibles : " +
-    txCharacteristic.properties.indicate);
-
-if (txCharacteristic.properties.notify) {
+if (
+    txCharacteristic.properties.notify ||
+    txCharacteristic.properties.indicate
+) {
     await txCharacteristic.startNotifications();
 
     txCharacteristic.addEventListener(
-        "characteristicvaluechanged", receive
+        "characteristicvaluechanged",
+        receive
     );
 
+    log("Réception Bluetooth activée !");
+} else {
+    log("Le canal TX ne propose ni notifications ni indications.");
+}
     log("Réception Bluetooth activée !");
 } else {
     log("ERREUR : notifications non disponibles.");
