@@ -155,12 +155,14 @@ if (
     txCharacteristic.properties.notify ||
     txCharacteristic.properties.indicate
 ) {
-    await txCharacteristic.startNotifications();
+   await txCharacteristic.startNotifications();
 
-    txCharacteristic.addEventListener(
-        "characteristicvaluechanged",
-        receive
-    );
+txCharacteristic.addEventListener(
+    "characteristicvaluechanged",
+    receive
+);
+
+log("Réception Bluetooth activée !");
 
     log("Réception Bluetooth activée !");
 } else {
