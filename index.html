@@ -49,24 +49,18 @@ button:disabled { opacity: .4; }
 
 <button id="connect">Connecter la micro:bit</button>
 <button id="disconnect" disabled>Déconnecter</button>
-
 <hr>
-
 <button id="ping" disabled>Envoyer PING</button>
 <button id="test" disabled>Envoyer TEST</button>
-
 <h3>Messages reçus</h3>
 <div id="messages">En attente...</div>
 </main>
 
 <script>
 const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-
-// Téléphone vers micro:bit
 const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-
-// Micro:bit vers téléphone
 const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
 let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
@@ -123,15 +117,15 @@ async function connect() {
     connectBtn.disabled = true;
 
     if (!navigator.bluetooth) {
-      throw new Error("Bluetooth Web non disponible. Utilise Chrome sur Android et une page HTTPS.");
+      throw new Error("Bluetooth Web non disponible. Utilise Chrome sur Android et HTTPS.");
     }
 
     device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
+      filters: [{ namePrefix: "BBC micro:bit" }],
       optionalServices: [SERVICE]
     });
 
-    log("Appareil choisi : " + (device.name || "micro:bit"));
+    log("Appareil choisi : " + device.name);
     status.textContent = "Connexion en cours...";
 
     device.addEventListener("gattserverdisconnected", disconnected);
@@ -148,38 +142,25 @@ async function connect() {
     txCharacteristic = await service.getCharacteristic(TX);
     log("Canal de réception trouvé.");
 
-log("Notify : " + txCharacteristic.properties.notify);
-log("Indicate : " + txCharacteristic.properties.indicate);
+    log("Notify : " + txCharacteristic.properties.notify);
+    log("Indicate : " + txCharacteristic.properties.indicate);
 
-if (
-    txCharacteristic.properties.notify ||
-    txCharacteristic.properties.indicate
-) {
-   await txCharacteristic.startNotifications();
+    await txCharacteristic.startNotifications();
 
-txCharacteristic.addEventListener(
-    "characteristicvaluechanged",
-    receive
-);
-
-log("Réception Bluetooth activée !");
+    txCharacteristic.addEventListener(
+      "characteristicvaluechanged",
+      receive
+    );
 
     log("Réception Bluetooth activée !");
-} else {
-    log("Le canal TX ne propose ni notifications ni indications.");
-}
-    log("Réception Bluetooth activée !");
-} else {
-    log("ERREUR : notifications non disponibles.");
-}
+    status.textContent = "Connecté à " + device.name;
 
-    status.textContent = "Connecté à " + (device.name || "micro:bit");
     disconnectBtn.disabled = false;
     pingBtn.disabled = false;
     testBtn.disabled = false;
 
-    log("Bluetooth prêt !");
     await send("PING");
+    log("Bluetooth prêt !");
 
   } catch (error) {
     status.textContent = "Connexion échouée";
