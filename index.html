@@ -61,9 +61,12 @@ button:disabled { opacity: .4; }
 
 <script>
 const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-const TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
+// Le téléphone envoie vers la micro:bit
+const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+// La micro:bit envoie vers le téléphone
+const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
