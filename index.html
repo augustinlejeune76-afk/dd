@@ -1,198 +1,52 @@
 
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test Bluetooth micro:bit</title>
-<style>
-body {
-  background: #101827;
-  color: white;
-  font-family: Arial, sans-serif;
-  text-align: center;
-  padding: 20px;
-}
-main {
-  max-width: 450px;
-  margin: 30px auto;
-  background: #1e293b;
-  padding: 25px;
-  border-radius: 18px;
-}
-button {
-  padding: 15px;
-  margin: 7px;
-  border: 0;
-  border-radius: 10px;
-  color: white;
-  background: #2563eb;
-  font-size: 17px;
-}
-button:disabled { opacity: .4; }
-#status { color: #fbbf24; }
-#messages {
-  background: #0f172a;
-  padding: 12px;
-  border-radius: 10px;
-  min-height: 100px;
-  text-align: left;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-</style>
-</head>
-<body>
-<main>
-<h1>Test Bluetooth</h1>
-<p id="status">Non connecté</p>
+let commande = ""
+let angle = 90
 
-<button id="connect">Connecter la micro:bit</button>
-<button id="disconnect" disabled>Déconnecter</button>
-<hr>
-<button id="ping" disabled>Envoyer PING</button>
-<button id="test" disabled>Envoyer TEST</button>
-<h3>Messages reçus</h3>
-<div id="messages">En attente...</div>
-</main>
+bluetooth.startUartService()
+bluetooth.setTransmitPower(7)
 
-<script>
-const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+servos.P0.setAngle(angle)
 
-let device = null;
-let rxCharacteristic = null;
-let txCharacteristic = null;
-let buffer = "";
+input.onButtonPressed(Button.A, function () {
+    angle = Math.max(0, angle - 5)
+    servos.P0.setAngle(angle)
+    bluetooth.uartWriteLine("ANGLE : " + angle)
+})
 
-const status = document.getElementById("status");
-const messages = document.getElementById("messages");
-const connectBtn = document.getElementById("connect");
-const disconnectBtn = document.getElementById("disconnect");
-const pingBtn = document.getElementById("ping");
-const testBtn = document.getElementById("test");
+input.onButtonPressed(Button.B, function () {
+    angle = Math.min(180, angle + 5)
+    servos.P0.setAngle(angle)
+    bluetooth.uartWriteLine("ANGLE : " + angle)
+})
 
-function log(text) {
-  messages.textContent += "\n" + text;
-}
+bluetooth.onUartDataReceived(
+    serial.delimiters(Delimiters.NewLine),
+    function () {
+        commande = bluetooth.uartReadUntil(
+            serial.delimiters(Delimiters.NewLine)
+        )
 
-function receive(event) {
-  buffer += new TextDecoder().decode(event.target.value);
-  const lines = buffer.split("\n");
-  buffer = lines.pop();
+        if (commande == "OUVRIR") {
+            angle = 180
+            servos.P0.setAngle(angle)
+            basic.showString("OUVERT")
+            bluetooth.uartWriteLine("OUVERT")
 
-  for (const line of lines) {
-    if (line.trim()) log("Micro:bit → " + line.trim());
-  }
-}
+        } else if (commande == "FERMER") {
+            angle = 0
+            servos.P0.setAngle(angle)
+            basic.showString("FERME")
+            bluetooth.uartWriteLine("FERME")
 
-async function send(text) {
-  if (!rxCharacteristic) {
-    log("Pas de connexion pour envoyer.");
-    return;
-  }
+        } else if (commande == "PLUS") {
+            angle = Math.min(180, angle + 5)
+            servos.P0.setAngle(angle)
+            bluetooth.uartWriteLine("ANGLE : " + angle)
 
-  try {
-    const data = new TextEncoder().encode(text + "\n");
-
-    if (rxCharacteristic.properties.writeWithoutResponse) {
-      await rxCharacteristic.writeValueWithoutResponse(data);
-    } else if (rxCharacteristic.properties.write) {
-      await rxCharacteristic.writeValueWithResponse(data);
-    } else {
-      throw new Error("Écriture Bluetooth non disponible");
+        } else if (commande == "MOINS") {
+            angle = Math.max(0, angle - 5)
+            servos.P0.setAngle(angle)
+            bluetooth.uartWriteLine("ANGLE : " + angle)
+        }
     }
-
-    log("Téléphone → " + text);
-  } catch (error) {
-    log("Erreur d'envoi : " + error.message);
-  }
-}
-
-async function connect() {
-  try {
-    messages.textContent = "";
-    status.textContent = "Recherche de la micro:bit...";
-    connectBtn.disabled = true;
-
-    if (!navigator.bluetooth) {
-      throw new Error("Bluetooth Web non disponible. Utilise Chrome sur Android et HTTPS.");
-    }
-
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "BBC micro:bit" }],
-      optionalServices: [SERVICE]
-    });
-
-    log("Appareil choisi : " + device.name);
-    status.textContent = "Connexion en cours...";
-
-    device.addEventListener("gattserverdisconnected", disconnected);
-
-    const server = await device.gatt.connect();
-    log("Connexion GATT réussie.");
-
-    const service = await server.getPrimaryService(SERVICE);
-    log("Service UART trouvé.");
-
-    rxCharacteristic = await service.getCharacteristic(RX);
-    log("Canal d'envoi trouvé.");
-
-    txCharacteristic = await service.getCharacteristic(TX);
-    log("Canal de réception trouvé.");
-
-    log("Notify : " + txCharacteristic.properties.notify);
-    log("Indicate : " + txCharacteristic.properties.indicate);
-
-    await txCharacteristic.startNotifications();
-
-    txCharacteristic.addEventListener(
-      "characteristicvaluechanged",
-      receive
-    );
-
-    log("Réception Bluetooth activée !");
-    status.textContent = "Connecté à " + device.name;
-
-    disconnectBtn.disabled = false;
-    pingBtn.disabled = false;
-    testBtn.disabled = false;
-
-    await send("PING");
-    log("Bluetooth prêt !");
-
-  } catch (error) {
-    status.textContent = "Connexion échouée";
-    log("ERREUR : " + error.name + " - " + error.message);
-
-    rxCharacteristic = null;
-    txCharacteristic = null;
-    connectBtn.disabled = false;
-  }
-}
-
-function disconnected() {
-  rxCharacteristic = null;
-  txCharacteristic = null;
-  status.textContent = "Non connecté";
-  connectBtn.disabled = false;
-  disconnectBtn.disabled = true;
-  pingBtn.disabled = true;
-  testBtn.disabled = true;
-  log("Micro:bit déconnectée.");
-}
-
-connectBtn.addEventListener("click", connect);
-
-disconnectBtn.addEventListener("click", () => {
-  if (device && device.gatt.connected) {
-    device.gatt.disconnect();
-  }
-});
-
-pingBtn.addEventListener("click", () => send("PING"));
-testBtn.addEventListener("click", () => send("TEST"));
-</script>
-</body>
-</html>
+)
