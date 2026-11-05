@@ -145,10 +145,10 @@ async function connect() {
     txCharacteristic = await service.getCharacteristic(TX);
     log("Canal de réception trouvé.");
 
-    await txCharacteristic.startNotifications();
-    txCharacteristic.addEventListener(
-      "characteristicvaluechanged", receive
-    );
+await txCharacteristic.startNotifications();
+txCharacteristic.addEventListener(
+  "characteristicvaluechanged", receive
+);
 
     status.textContent = "Connecté à " + (device.name || "micro:bit");
     disconnectBtn.disabled = false;
