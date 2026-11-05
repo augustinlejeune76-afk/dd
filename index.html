@@ -1,52 +1,253 @@
 
-let commande = ""
-let angle = 90
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commande servomoteur micro:bit</title>
 
-bluetooth.startUartService()
-bluetooth.setTransmitPower(7)
+<style>
+body {
+    background: #101827;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 20px;
+}
 
-servos.P0.setAngle(angle)
+main {
+    max-width: 450px;
+    margin: 30px auto;
+    background: #1e293b;
+    padding: 25px;
+    border-radius: 18px;
+}
 
-input.onButtonPressed(Button.A, function () {
-    angle = Math.max(0, angle - 5)
-    servos.P0.setAngle(angle)
-    bluetooth.uartWriteLine("ANGLE : " + angle)
-})
+button {
+    padding: 16px;
+    margin: 7px;
+    border: 0;
+    border-radius: 10px;
+    color: white;
+    font-size: 17px;
+    background: #2563eb;
+}
 
-input.onButtonPressed(Button.B, function () {
-    angle = Math.min(180, angle + 5)
-    servos.P0.setAngle(angle)
-    bluetooth.uartWriteLine("ANGLE : " + angle)
-})
+button:disabled {
+    opacity: 0.4;
+}
 
-bluetooth.onUartDataReceived(
-    serial.delimiters(Delimiters.NewLine),
-    function () {
-        commande = bluetooth.uartReadUntil(
-            serial.delimiters(Delimiters.NewLine)
-        )
+.open {
+    background: #16a34a;
+}
 
-        if (commande == "OUVRIR") {
-            angle = 180
-            servos.P0.setAngle(angle)
-            basic.showString("OUVERT")
-            bluetooth.uartWriteLine("OUVERT")
+.close {
+    background: #dc2626;
+}
 
-        } else if (commande == "FERMER") {
-            angle = 0
-            servos.P0.setAngle(angle)
-            basic.showString("FERME")
-            bluetooth.uartWriteLine("FERME")
+#status {
+    color: #fbbf24;
+}
 
-        } else if (commande == "PLUS") {
-            angle = Math.min(180, angle + 5)
-            servos.P0.setAngle(angle)
-            bluetooth.uartWriteLine("ANGLE : " + angle)
+#messages {
+    background: #0f172a;
+    padding: 12px;
+    border-radius: 10px;
+    min-height: 100px;
+    text-align: left;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+</style>
+</head>
 
-        } else if (commande == "MOINS") {
-            angle = Math.max(0, angle - 5)
-            servos.P0.setAngle(angle)
-            bluetooth.uartWriteLine("ANGLE : " + angle)
+<body>
+
+<main>
+    <h1>Commande du servo</h1>
+
+    <p id="status">Non connecté</p>
+
+    <button id="connect">Connecter la micro:bit</button>
+    <button id="disconnect" disabled>Déconnecter</button>
+
+    <hr>
+
+    <h2>Servomoteur</h2>
+
+    <button class="open" id="open" disabled>
+        OUVRIR
+    </button>
+
+    <button class="close" id="close" disabled>
+        FERMER
+    </button>
+
+    <br>
+
+    <button id="plus" disabled>+5°</button>
+    <button id="minus" disabled>-5°</button>
+
+    <h3>Messages reçus</h3>
+    <div id="messages">En attente...</div>
+</main>
+
+<script>
+
+const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+let device = null;
+let rxCharacteristic = null;
+let txCharacteristic = null;
+let buffer = "";
+
+const status = document.getElementById("status");
+const messages = document.getElementById("messages");
+
+const connectBtn = document.getElementById("connect");
+const disconnectBtn = document.getElementById("disconnect");
+
+const openBtn = document.getElementById("open");
+const closeBtn = document.getElementById("close");
+const plusBtn = document.getElementById("plus");
+const minusBtn = document.getElementById("minus");
+
+function log(text) {
+    messages.textContent += "\n" + text;
+}
+
+function setButtons(connected) {
+    disconnectBtn.disabled = !connected;
+    openBtn.disabled = !connected;
+    closeBtn.disabled = !connected;
+    plusBtn.disabled = !connected;
+    minusBtn.disabled = !connected;
+    connectBtn.disabled = connected;
+}
+
+function receive(event) {
+    buffer += new TextDecoder().decode(event.target.value);
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
+
+    for (const line of lines) {
+        if (line.trim()) {
+            log("Micro:bit → " + line.trim());
         }
     }
-)
+}
+
+async function send(command) {
+    if (!rxCharacteristic) {
+        log("Micro:bit non connectée.");
+        return;
+    }
+
+    try {
+        const data = new TextEncoder().encode(command + "\n");
+
+        if (rxCharacteristic.properties.writeWithoutResponse) {
+            await rxCharacteristic.writeValueWithoutResponse(data);
+        } else if (rxCharacteristic.properties.write) {
+            await rxCharacteristic.writeValueWithResponse(data);
+        } else {
+            throw new Error("Écriture Bluetooth indisponible");
+        }
+
+        log("Téléphone → " + command);
+
+    } catch (error) {
+        log("Erreur : " + error.message);
+    }
+}
+
+async function connect() {
+    try {
+        messages.textContent = "";
+        status.textContent = "Recherche de la micro:bit...";
+        connectBtn.disabled = true;
+
+        if (!navigator.bluetooth) {
+            throw new Error("Bluetooth Web indisponible. Utilise Chrome et HTTPS.");
+        }
+
+        device = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: "BBC micro:bit" }],
+            optionalServices: [SERVICE]
+        });
+
+        log("Micro:bit choisie : " + device.name);
+
+        device.addEventListener(
+            "gattserverdisconnected",
+            disconnected
+        );
+
+        status.textContent = "Connexion en cours...";
+
+        const server = await device.gatt.connect();
+        log("Connexion Bluetooth réussie.");
+
+        const service = await server.getPrimaryService(SERVICE);
+        log("Service UART trouvé.");
+
+        rxCharacteristic = await service.getCharacteristic(RX);
+        log("Canal d'envoi trouvé.");
+
+        txCharacteristic = await service.getCharacteristic(TX);
+        log("Canal de réception trouvé.");
+
+        await txCharacteristic.startNotifications();
+
+        txCharacteristic.addEventListener(
+            "characteristicvaluechanged",
+            receive
+        );
+
+        log("Réception Bluetooth activée !");
+
+        status.textContent = "Connecté à " + device.name;
+        setButtons(true);
+
+        log("Tu peux commander le servo !");
+
+    } catch (error) {
+        status.textContent = "Connexion échouée";
+        log("ERREUR : " + error.name + " - " + error.message);
+
+        rxCharacteristic = null;
+        txCharacteristic = null;
+        setButtons(false);
+    }
+}
+
+function disconnected() {
+    rxCharacteristic = null;
+    txCharacteristic = null;
+
+    status.textContent = "Non connecté";
+    setButtons(false);
+
+    log("Micro:bit déconnectée.");
+}
+
+connectBtn.addEventListener("click", connect);
+
+disconnectBtn.addEventListener("click", () => {
+    if (device && device.gatt.connected) {
+        device.gatt.disconnect();
+    }
+});
+
+openBtn.addEventListener("click", () => send("OUVRIR"));
+closeBtn.addEventListener("click", () => send("FERMER"));
+plusBtn.addEventListener("click", () => send("PLUS"));
+minusBtn.addEventListener("click", () => send("MOINS"));
+
+</script>
+
+</body>
+</html>
