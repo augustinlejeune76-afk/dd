@@ -5,7 +5,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Commande servo</title>
-
 <style>
 body {
     font-family: Arial, sans-serif;
@@ -52,15 +51,15 @@ button {
 <div id="angle">90°</div>
 
 <button class="action" onclick="sendCommand('OUVRIR')">
-    Ouvrir
+    Ouvrir (135°)
 </button>
 
 <button class="action" onclick="sendCommand('FERMER')">
-    Fermer
+    Fermer (45°)
 </button>
 
 <button class="action" onclick="sendCommand('CENTRER')">
-    Recentrer le servo
+    Recentrer (90°)
 </button>
 
 <button class="action" onclick="sendCommand('PLUS')">
@@ -110,19 +109,18 @@ async function connectMicrobit() {
                 document.getElementById("message").textContent =
                     "Micro:bit : " + value.trim();
 
-                const match = value.match(/ANGLE\s*:\s*(\d+)/);
-                if (match) {
-                    document.getElementById("angle").textContent =
-                        match[1] + "°";
-                }
-                if (value.includes("CENTRE 90")) {
-                    document.getElementById("angle").textContent = "90°";
-                }
                 if (value.includes("OUVERT")) {
                     document.getElementById("angle").textContent = "135°";
-                }
-                if (value.includes("FERME")) {
+                } else if (value.includes("FERME")) {
                     document.getElementById("angle").textContent = "45°";
+                } else if (value.includes("CENTRE 90")) {
+                    document.getElementById("angle").textContent = "90°";
+                } else {
+                    const match = value.match(/ANGLE\s*:\s*(\d+)/);
+                    if (match) {
+                        document.getElementById("angle").textContent =
+                            match[1] + "°";
+                    }
                 }
             }
         );
