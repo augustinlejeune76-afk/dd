@@ -29,9 +29,6 @@ button {
     background: #2563eb;
 }
 button:disabled { opacity: 0.4; }
-.open { background: #16a34a; }
-.close { background: #dc2626; }
-.center { background: #7c3aed; }
 #status { color: #fbbf24; }
 #messages {
     background: #0f172a;
@@ -41,6 +38,22 @@ button:disabled { opacity: 0.4; }
     text-align: left;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+}
+.slider-container {
+    margin: 30px 0;
+}
+input[type="range"] {
+    width: 100%;
+    height: 35px;
+    cursor: pointer;
+    touch-action: pan-y;
+}
+#angle {
+    font-size: 35px;
+    margin: 15px;
+}
+.instructions {
+    color: #cbd5e1;
 }
 </style>
 </head>
@@ -53,15 +66,25 @@ button:disabled { opacity: 0.4; }
     <button id="disconnect" disabled>Déconnecter</button>
 
     <hr>
-    <h2>Servomoteur</h2>
+    <h2>Contrôle du servomoteur</h2>
 
-    <button class="open" id="open" disabled>OUVRIR (135°)</button>
-    <button class="close" id="close" disabled>FERMER (45°)</button>
-    <br>
-    <button class="center" id="center" disabled>CENTRER (90°)</button>
-    <br>
-    <button id="plus" disabled>+5°</button>
-    <button id="minus" disabled>-5°</button>
+    <div class="slider-container">
+        <p class="instructions">Maintiens et déplace le curseur</p>
+        <div id="angle">90°</div>
+
+        <input
+            type="range"
+            id="servoSlider"
+            min="45"
+            max="135"
+            value="90"
+            step="1"
+            disabled
+        >
+
+        <p>45° ← Gauche | Centre → 135°</p>
+        <p class="instructions">Relâche pour revenir à 90°</p>
+    </div>
 
     <h3>Messages reçus</h3>
     <div id="messages">En attente...</div>
@@ -76,17 +99,17 @@ let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
 let buffer = "";
+let lastAngleSent = -1;
+let lastSendTime = 0;
+let sendTimer = null;
 
 const status = document.getElementById("status");
 const messages = document.getElementById("messages");
+const slider = document.getElementById("servoSlider");
+const angleDisplay = document.getElementById("angle");
 
 const connectBtn = document.getElementById("connect");
 const disconnectBtn = document.getElementById("disconnect");
-const openBtn = document.getElementById("open");
-const closeBtn = document.getElementById("close");
-const centerBtn = document.getElementById("center");
-const plusBtn = document.getElementById("plus");
-const minusBtn = document.getElementById("minus");
 
 function log(text) {
     messages.textContent += "\n" + text;
@@ -94,11 +117,7 @@ function log(text) {
 
 function setButtons(connected) {
     disconnectBtn.disabled = !connected;
-    openBtn.disabled = !connected;
-    closeBtn.disabled = !connected;
-    centerBtn.disabled = !connected;
-    plusBtn.disabled = !connected;
-    minusBtn.disabled = !connected;
+    slider.disabled = !connected;
     connectBtn.disabled = connected;
 }
 
@@ -114,7 +133,6 @@ function receive(event) {
 
 async function send(command) {
     if (!rxCharacteristic) {
-        log("Micro:bit non connectée.");
         return;
     }
 
@@ -170,6 +188,8 @@ async function connect() {
         status.textContent = "Connecté à " + device.name;
         setButtons(true);
         log("Bluetooth prêt !");
+        slider.value = 90;
+        angleDisplay.textContent = "90°";
 
     } catch (error) {
         status.textContent = "Connexion échouée";
@@ -188,6 +208,52 @@ function disconnected() {
     log("Micro:bit déconnectée.");
 }
 
+function sendSliderAngle(angle) {
+    const now = Date.now();
+
+    if (angle === lastAngleSent) return;
+
+    if (now - lastSendTime >= 70) {
+        lastAngleSent = angle;
+        lastSendTime = now;
+        send("ANGLE:" + angle);
+    } else {
+        clearTimeout(sendTimer);
+        sendTimer = setTimeout(() => {
+            if (rxCharacteristic) {
+                lastAngleSent = angle;
+                lastSendTime = Date.now();
+                send("ANGLE:" + angle);
+            }
+        }, 70 - (now - lastSendTime));
+    }
+}
+
+slider.addEventListener("input", () => {
+    const angle = Number(slider.value);
+    angleDisplay.textContent = angle + "°";
+    sendSliderAngle(angle);
+});
+
+function returnToCenter() {
+    if (slider.disabled) return;
+
+    clearTimeout(sendTimer);
+    slider.value = 90;
+    angleDisplay.textContent = "90°";
+    lastAngleSent = 90;
+    lastSendTime = Date.now();
+    send("CENTRER");
+}
+
+slider.addEventListener("pointerup", returnToCenter);
+slider.addEventListener("pointercancel", returnToCenter);
+slider.addEventListener("change", () => {
+    if (!slider.matches(":active")) {
+        returnToCenter();
+    }
+});
+
 connectBtn.addEventListener("click", connect);
 
 disconnectBtn.addEventListener("click", () => {
@@ -196,11 +262,6 @@ disconnectBtn.addEventListener("click", () => {
     }
 });
 
-openBtn.addEventListener("click", () => send("OUVRIR"));
-closeBtn.addEventListener("click", () => send("FERMER"));
-centerBtn.addEventListener("click", () => send("CENTRER"));
-plusBtn.addEventListener("click", () => send("PLUS"));
-minusBtn.addEventListener("click", () => send("MOINS"));
 </script>
 </body>
 </html>
