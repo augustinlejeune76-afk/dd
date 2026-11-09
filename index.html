@@ -1,206 +1,212 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Commande servomoteur micro:bit</title>
+<title>Commande servo Xbox</title>
+
 <style>
 body {
-    background: #101827;
-    color: white;
     font-family: Arial, sans-serif;
     text-align: center;
+    background: #202431;
+    color: white;
     padding: 20px;
 }
-main {
-    max-width: 450px;
-    margin: 30px auto;
-    background: #1e293b;
-    padding: 25px;
-    border-radius: 18px;
-}
 button {
-    padding: 16px;
+    padding: 14px 20px;
     margin: 7px;
     border: 0;
     border-radius: 10px;
-    color: white;
-    font-size: 17px;
-    background: #2563eb;
+    font-size: 16px;
 }
-button:disabled { opacity: 0.4; }
-.open { background: #16a34a; }
-.close { background: #dc2626; }
-.center { background: #7c3aed; }
-#status { color: #fbbf24; }
-#messages {
-    background: #0f172a;
+.connect { background: #36a269; color: white; }
+.action { background: #3478db; color: white; }
+.status {
+    background: #30394b;
     padding: 12px;
     border-radius: 10px;
-    min-height: 100px;
-    text-align: left;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    margin: 12px auto;
+    max-width: 420px;
+}
+#angle {
+    font-size: 38px;
+    margin: 20px;
 }
 </style>
 </head>
+
 <body>
-<main>
-    <h1>Commande du servo</h1>
-    <p id="status">Non connecté</p>
 
-    <button id="connect">Connecter la micro:bit</button>
-    <button id="disconnect" disabled>Déconnecter</button>
+<h1>Commande du servomoteur</h1>
 
-    <hr>
-    <h2>Servomoteur</h2>
+<div class="status" id="bluetoothStatus">
+    Micro:bit non connectée
+</div>
 
-    <button class="open" id="open" disabled>OUVRIR</button>
-    <button class="close" id="close" disabled>FERMER</button>
-    <br>
-    <button class="center" id="center" disabled>CENTRER (90°)</button>
-    <br>
-    <button id="plus" disabled>+5°</button>
-    <button id="minus" disabled>-5°</button>
+<div class="status" id="gamepadStatus">
+    Manette Xbox non détectée
+</div>
 
-    <h3>Messages reçus</h3>
-    <div id="messages">En attente...</div>
-</main>
+<button class="connect" onclick="connectMicrobit()">
+    Connecter la micro:bit
+</button>
+
+<div id="angle">90°</div>
+
+<button class="action" onclick="sendCommand('CENTRER')">
+    Recentrer le servo
+</button>
+
+<p>
+Joystick gauche horizontal :<br>
+Gauche = 45°<br>
+Centre = 90°<br>
+Droite = 135°
+</p>
+
+<div class="status" id="message">
+    En attente...
+</div>
 
 <script>
-const SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const RX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
-const TX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const RX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 
 let device = null;
-let rxCharacteristic = null;
 let txCharacteristic = null;
-let buffer = "";
+let rxCharacteristic = null;
 
-const status = document.getElementById("status");
-const messages = document.getElementById("messages");
+let lastAngleSent = -1;
+let lastSendTime = 0;
 
-const connectBtn = document.getElementById("connect");
-const disconnectBtn = document.getElementById("disconnect");
-const openBtn = document.getElementById("open");
-const closeBtn = document.getElementById("close");
-const centerBtn = document.getElementById("center");
-const plusBtn = document.getElementById("plus");
-const minusBtn = document.getElementById("minus");
+async function connectMicrobit() {
+    try {
+        device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [SERVICE_UUID] }]
+        });
 
-function log(text) {
-    messages.textContent += "\n" + text;
-}
+        device.addEventListener("gattserverdisconnected", () => {
+            document.getElementById("bluetoothStatus").textContent =
+                "Micro:bit déconnectée";
+            txCharacteristic = null;
+            rxCharacteristic = null;
+        });
 
-function setButtons(connected) {
-    disconnectBtn.disabled = !connected;
-    openBtn.disabled = !connected;
-    closeBtn.disabled = !connected;
-    centerBtn.disabled = !connected;
-    plusBtn.disabled = !connected;
-    minusBtn.disabled = !connected;
-    connectBtn.disabled = connected;
-}
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
 
-function receive(event) {
-    buffer += new TextDecoder().decode(event.target.value);
-    const lines = buffer.split("\n");
-    buffer = lines.pop();
+        rxCharacteristic = await service.getCharacteristic(RX_UUID);
+        txCharacteristic = await service.getCharacteristic(TX_UUID);
 
-    for (const line of lines) {
-        if (line.trim()) log("Micro:bit → " + line.trim());
+        await txCharacteristic.startNotifications();
+
+        txCharacteristic.addEventListener(
+            "characteristicvaluechanged",
+            event => {
+                const value = new TextDecoder().decode(event.target.value);
+                document.getElementById("message").textContent =
+                    "Micro:bit : " + value.trim();
+            }
+        );
+
+        document.getElementById("bluetoothStatus").textContent =
+            "Micro:bit connectée : " + device.name;
+
+    } catch (error) {
+        document.getElementById("message").textContent =
+            "Erreur Bluetooth : " + error.message;
     }
 }
 
-async function send(command) {
+async function sendCommand(command) {
     if (!rxCharacteristic) {
-        log("Micro:bit non connectée.");
+        document.getElementById("message").textContent =
+            "Connecte d'abord la micro:bit.";
         return;
     }
 
     try {
         const data = new TextEncoder().encode(command + "\n");
 
-        if (rxCharacteristic.properties.writeWithoutResponse) {
+        if (rxCharacteristic.writeValueWithoutResponse) {
             await rxCharacteristic.writeValueWithoutResponse(data);
-        } else if (rxCharacteristic.properties.write) {
-            await rxCharacteristic.writeValueWithResponse(data);
         } else {
-            throw new Error("Écriture Bluetooth indisponible");
+            await rxCharacteristic.writeValueWithResponse(data);
         }
 
-        log("Téléphone → " + command);
+        document.getElementById("message").textContent =
+            "Envoyé : " + command;
+
     } catch (error) {
-        log("Erreur : " + error.message);
+        document.getElementById("message").textContent =
+            "Erreur : " + error.message;
     }
 }
 
-async function connect() {
-    try {
-        messages.textContent = "";
-        status.textContent = "Recherche de la micro:bit...";
-        connectBtn.disabled = true;
+function updateGamepad() {
+    const gamepads = navigator.getGamepads();
+    let pad = null;
 
-        if (!navigator.bluetooth) {
-            throw new Error("Bluetooth Web indisponible. Utilise Chrome et HTTPS.");
+    for (const gamepad of gamepads) {
+        if (gamepad && gamepad.connected) {
+            pad = gamepad;
+            break;
+        }
+    }
+
+    if (pad) {
+        document.getElementById("gamepadStatus").textContent =
+            "Manette détectée : " + pad.id;
+
+        // Axe horizontal du joystick gauche
+        let stick = pad.axes[0] || 0;
+
+        // Zone neutre au centre
+        if (Math.abs(stick) < 0.12) {
+            stick = 0;
         }
 
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: "BBC micro:bit" }],
-            optionalServices: [SERVICE]
-        });
+        // Conversion en angle entre 45 et 135 degrés
+        let angle = Math.round(90 + stick * 45);
+        angle = Math.max(45, Math.min(135, angle));
 
-        log("Micro:bit choisie : " + device.name);
-        device.addEventListener("gattserverdisconnected", disconnected);
+        document.getElementById("angle").textContent = angle + "°";
 
-        status.textContent = "Connexion en cours...";
+        const now = Date.now();
 
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(SERVICE);
+        if (
+            rxCharacteristic &&
+            Math.abs(angle - lastAngleSent) >= 1 &&
+            now - lastSendTime >= 80
+        ) {
+            lastAngleSent = angle;
+            lastSendTime = now;
+            sendCommand("ANGLE:" + angle);
+        }
 
-        rxCharacteristic = await service.getCharacteristic(RX);
-        txCharacteristic = await service.getCharacteristic(TX);
-
-        await txCharacteristic.startNotifications();
-        txCharacteristic.addEventListener(
-            "characteristicvaluechanged",
-            receive
-        );
-
-        status.textContent = "Connecté à " + device.name;
-        setButtons(true);
-        log("Bluetooth prêt !");
-
-    } catch (error) {
-        status.textContent = "Connexion échouée";
-        log("ERREUR : " + error.name + " - " + error.message);
-        rxCharacteristic = null;
-        txCharacteristic = null;
-        setButtons(false);
+    } else {
+        document.getElementById("gamepadStatus").textContent =
+            "Manette Xbox non détectée";
     }
+
+    requestAnimationFrame(updateGamepad);
 }
 
-function disconnected() {
-    rxCharacteristic = null;
-    txCharacteristic = null;
-    status.textContent = "Non connecté";
-    setButtons(false);
-    log("Micro:bit déconnectée.");
-}
-
-connectBtn.addEventListener("click", connect);
-
-disconnectBtn.addEventListener("click", () => {
-    if (device && device.gatt.connected) {
-        device.gatt.disconnect();
-    }
+window.addEventListener("gamepadconnected", event => {
+    document.getElementById("gamepadStatus").textContent =
+        "Manette connectée : " + event.gamepad.id;
 });
 
-openBtn.addEventListener("click", () => send("OUVRIR"));
-closeBtn.addEventListener("click", () => send("FERMER"));
-centerBtn.addEventListener("click", () => send("CENTRER"));
-plusBtn.addEventListener("click", () => send("PLUS"));
-minusBtn.addEventListener("click", () => send("MOINS"));
+window.addEventListener("gamepaddisconnected", () => {
+    document.getElementById("gamepadStatus").textContent =
+        "Manette déconnectée";
+});
+
+requestAnimationFrame(updateGamepad);
 </script>
+
 </body>
 </html>
