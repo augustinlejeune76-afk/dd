@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Commande servomoteur micro:bit</title>
+<title>Commande servo micro:bit</title>
 <style>
 body {
     background: #101827;
@@ -30,6 +30,10 @@ button {
 }
 button:disabled { opacity: 0.4; }
 #status { color: #fbbf24; }
+#angle {
+    font-size: 55px;
+    margin: 25px;
+}
 #messages {
     background: #0f172a;
     padding: 12px;
@@ -39,19 +43,6 @@ button:disabled { opacity: 0.4; }
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
-.slider-container {
-    margin: 30px 0;
-}
-input[type="range"] {
-    width: 100%;
-    height: 35px;
-    cursor: pointer;
-    touch-action: pan-y;
-}
-#angle {
-    font-size: 35px;
-    margin: 15px;
-}
 .instructions {
     color: #cbd5e1;
 }
@@ -60,32 +51,27 @@ input[type="range"] {
 <body>
 <main>
     <h1>Commande du servo</h1>
+
     <p id="status">Non connecté</p>
 
     <button id="connect">Connecter la micro:bit</button>
     <button id="disconnect" disabled>Déconnecter</button>
 
     <hr>
-    <h2>Contrôle du servomoteur</h2>
 
-    <div class="slider-container">
-        <p class="instructions">Maintiens et déplace le curseur</p>
-        <div id="angle">90°</div>
+    <h2>Commande manette Xbox</h2>
 
-        <input
-            type="range"
-            id="servoSlider"
-            min="45"
-            max="135"
-            value="90"
-            step="5"
-            disabled
-        >
+    <p id="gamepadStatus">Manette non détectée</p>
 
-        <p>45° ← Gauche | Droite → 135°</p>
-        <p class="instructions">Relâche pour revenir à 90°</p>
-        <p class="instructions">Réglage par crans de 5°</p>
-    </div>
+    <div id="angle">90°</div>
+
+    <p class="instructions">
+        Joystick gauche horizontal
+    </p>
+    <p>45° ← Gauche | Centre → 135°</p>
+    <p class="instructions">
+        Le servo revient à 90° lorsque le joystick revient au centre.
+    </p>
 
     <h3>Messages reçus</h3>
     <div id="messages">En attente...</div>
@@ -100,12 +86,15 @@ let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
 let buffer = "";
-let envoiEnCours = Promise.resolve();
+
+let currentAngle = 90;
+let lastAngleSent = -1;
+let sending = Promise.resolve();
 
 const status = document.getElementById("status");
 const messages = document.getElementById("messages");
-const slider = document.getElementById("servoSlider");
 const angleDisplay = document.getElementById("angle");
+const gamepadStatus = document.getElementById("gamepadStatus");
 
 const connectBtn = document.getElementById("connect");
 const disconnectBtn = document.getElementById("disconnect");
@@ -116,7 +105,6 @@ function log(text) {
 
 function setButtons(connected) {
     disconnectBtn.disabled = !connected;
-    slider.disabled = !connected;
     connectBtn.disabled = connected;
 }
 
@@ -126,14 +114,16 @@ function receive(event) {
     buffer = lines.pop();
 
     for (const line of lines) {
-        if (line.trim()) log("Micro:bit → " + line.trim());
+        if (line.trim()) {
+            log("Micro:bit → " + line.trim());
+        }
     }
 }
 
 function send(command) {
     if (!rxCharacteristic) return;
 
-    envoiEnCours = envoiEnCours.then(async () => {
+    sending = sending.then(async () => {
         if (!rxCharacteristic) return;
 
         const data = new TextEncoder().encode(command + "\n");
@@ -149,7 +139,7 @@ function send(command) {
         log("Erreur : " + error.message);
     });
 
-    return envoiEnCours;
+    return sending;
 }
 
 async function connect() {
@@ -186,8 +176,11 @@ async function connect() {
 
         status.textContent = "Connecté à " + device.name;
         setButtons(true);
-        slider.value = 90;
+
+        currentAngle = 90;
+        lastAngleSent = 90;
         angleDisplay.textContent = "90°";
+
         log("Bluetooth prêt !");
         await send("CENTRER");
 
@@ -208,23 +201,54 @@ function disconnected() {
     log("Micro:bit déconnectée.");
 }
 
-slider.addEventListener("input", () => {
-    const angle = Number(slider.value);
-    angleDisplay.textContent = angle + "°";
-    send("ANGLE:" + angle);
-});
+function updateGamepad() {
+    const gamepads = navigator.getGamepads();
+    let pad = null;
 
-function returnToCenter() {
-    if (slider.disabled) return;
+    for (const gamepad of gamepads) {
+        if (gamepad && gamepad.connected) {
+            pad = gamepad;
+            break;
+        }
+    }
 
-    slider.value = 90;
-    angleDisplay.textContent = "90°";
-    send("CENTRER");
+    if (pad) {
+        gamepadStatus.textContent = "Manette détectée : " + pad.id;
+
+        let stick = pad.axes[0] || 0;
+
+        if (Math.abs(stick) < 0.15) {
+            stick = 0;
+        }
+
+        // Transformation du joystick en crans de 5 degrés
+        const cran = Math.round((stick + 1) * 9);
+        const angle = 45 + cran * 5;
+
+        if (angle !== currentAngle) {
+            currentAngle = angle;
+            angleDisplay.textContent = angle + "°";
+
+            if (rxCharacteristic && angle !== lastAngleSent) {
+                lastAngleSent = angle;
+                send("ANGLE:" + angle);
+            }
+        }
+
+    } else {
+        gamepadStatus.textContent = "Manette non détectée";
+    }
+
+    requestAnimationFrame(updateGamepad);
 }
 
-slider.addEventListener("pointerup", returnToCenter);
-slider.addEventListener("pointercancel", returnToCenter);
-slider.addEventListener("lostpointercapture", returnToCenter);
+window.addEventListener("gamepadconnected", event => {
+    gamepadStatus.textContent = "Manette connectée : " + event.gamepad.id;
+});
+
+window.addEventListener("gamepaddisconnected", () => {
+    gamepadStatus.textContent = "Manette déconnectée";
+});
 
 connectBtn.addEventListener("click", connect);
 
@@ -233,6 +257,8 @@ disconnectBtn.addEventListener("click", () => {
         device.gatt.disconnect();
     }
 });
+
+requestAnimationFrame(updateGamepad);
 </script>
 </body>
 </html>
