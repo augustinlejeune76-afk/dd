@@ -78,12 +78,13 @@ input[type="range"] {
             min="45"
             max="135"
             value="90"
-            step="1"
+            step="5"
             disabled
         >
 
-        <p>45° ← Gauche | Centre → 135°</p>
+        <p>45° ← Gauche | Droite → 135°</p>
         <p class="instructions">Relâche pour revenir à 90°</p>
+        <p class="instructions">Réglage par crans de 5°</p>
     </div>
 
     <h3>Messages reçus</h3>
@@ -99,9 +100,7 @@ let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
 let buffer = "";
-let lastAngleSent = -1;
-let lastSendTime = 0;
-let sendTimer = null;
+let envoiEnCours = Promise.resolve();
 
 const status = document.getElementById("status");
 const messages = document.getElementById("messages");
@@ -131,26 +130,26 @@ function receive(event) {
     }
 }
 
-async function send(command) {
-    if (!rxCharacteristic) {
-        return;
-    }
+function send(command) {
+    if (!rxCharacteristic) return;
 
-    try {
+    envoiEnCours = envoiEnCours.then(async () => {
+        if (!rxCharacteristic) return;
+
         const data = new TextEncoder().encode(command + "\n");
 
         if (rxCharacteristic.properties.writeWithoutResponse) {
             await rxCharacteristic.writeValueWithoutResponse(data);
-        } else if (rxCharacteristic.properties.write) {
-            await rxCharacteristic.writeValueWithResponse(data);
         } else {
-            throw new Error("Écriture Bluetooth indisponible");
+            await rxCharacteristic.writeValueWithResponse(data);
         }
 
         log("Téléphone → " + command);
-    } catch (error) {
+    }).catch(error => {
         log("Erreur : " + error.message);
-    }
+    });
+
+    return envoiEnCours;
 }
 
 async function connect() {
@@ -187,9 +186,10 @@ async function connect() {
 
         status.textContent = "Connecté à " + device.name;
         setButtons(true);
-        log("Bluetooth prêt !");
         slider.value = 90;
         angleDisplay.textContent = "90°";
+        log("Bluetooth prêt !");
+        await send("CENTRER");
 
     } catch (error) {
         status.textContent = "Connexion échouée";
@@ -208,51 +208,23 @@ function disconnected() {
     log("Micro:bit déconnectée.");
 }
 
-function sendSliderAngle(angle) {
-    const now = Date.now();
-
-    if (angle === lastAngleSent) return;
-
-    if (now - lastSendTime >= 70) {
-        lastAngleSent = angle;
-        lastSendTime = now;
-        send("ANGLE:" + angle);
-    } else {
-        clearTimeout(sendTimer);
-        sendTimer = setTimeout(() => {
-            if (rxCharacteristic) {
-                lastAngleSent = angle;
-                lastSendTime = Date.now();
-                send("ANGLE:" + angle);
-            }
-        }, 70 - (now - lastSendTime));
-    }
-}
-
 slider.addEventListener("input", () => {
     const angle = Number(slider.value);
     angleDisplay.textContent = angle + "°";
-    sendSliderAngle(angle);
+    send("ANGLE:" + angle);
 });
 
 function returnToCenter() {
     if (slider.disabled) return;
 
-    clearTimeout(sendTimer);
     slider.value = 90;
     angleDisplay.textContent = "90°";
-    lastAngleSent = 90;
-    lastSendTime = Date.now();
     send("CENTRER");
 }
 
 slider.addEventListener("pointerup", returnToCenter);
 slider.addEventListener("pointercancel", returnToCenter);
-slider.addEventListener("change", () => {
-    if (!slider.matches(":active")) {
-        returnToCenter();
-    }
-});
+slider.addEventListener("lostpointercapture", returnToCenter);
 
 connectBtn.addEventListener("click", connect);
 
@@ -261,7 +233,6 @@ disconnectBtn.addEventListener("click", () => {
         device.gatt.disconnect();
     }
 });
-
 </script>
 </body>
 </html>
