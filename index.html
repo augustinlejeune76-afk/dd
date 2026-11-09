@@ -80,9 +80,9 @@ let rxCharacteristic = null;
 let lastAngleSent = -1;
 let lastSendTime = 0;
 
+// CONNEXION BLUETOOTH : même méthode que ton ancien index
 async function connectMicrobit() {
     try {
-        // Recherche de la micro:bit comme dans l'ancien programme
         device = await navigator.bluetooth.requestDevice({
             filters: [{ services: [SERVICE_UUID] }]
         });
@@ -114,15 +114,13 @@ async function connectMicrobit() {
         document.getElementById("bluetoothStatus").textContent =
             "Micro:bit connectée : " + device.name;
 
-        document.getElementById("message").textContent =
-            "Connexion Bluetooth réussie !";
-
     } catch (error) {
         document.getElementById("message").textContent =
             "Erreur Bluetooth : " + error.message;
     }
 }
 
+// ENVOI DES COMMANDES : même méthode que ton ancien index
 async function sendCommand(command) {
     if (!rxCharacteristic) {
         document.getElementById("message").textContent =
@@ -148,7 +146,7 @@ async function sendCommand(command) {
     }
 }
 
-// Lecture de la manette Xbox branchée en USB
+// AJOUT : lecture du joystick Xbox en USB
 function updateGamepad() {
     const gamepads = navigator.getGamepads();
     let pad = null;
@@ -164,15 +162,12 @@ function updateGamepad() {
         document.getElementById("gamepadStatus").textContent =
             "Manette détectée : " + pad.id;
 
-        // Joystick gauche horizontal
         let stick = pad.axes[0] || 0;
 
-        // Zone neutre au centre
         if (Math.abs(stick) < 0.12) {
             stick = 0;
         }
 
-        // Conversion entre 45 et 135 degrés
         let angle = Math.round(90 + stick * 45);
         angle = Math.max(45, Math.min(135, angle));
 
