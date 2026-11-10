@@ -1,9 +1,11 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Commande double micro:bit</title>
+<title>Commande servo et moteur micro:bit</title>
+
 <style>
 body {
     background: #101827;
@@ -51,6 +53,7 @@ button:disabled { opacity: 0.4; }
 }
 </style>
 </head>
+
 <body>
 <main>
     <h1>Commande micro:bit</h1>
@@ -67,15 +70,15 @@ button:disabled { opacity: 0.4; }
         <p>Joystick gauche horizontal</p>
         <div class="value" id="angle">90°</div>
         <p>45° ← Centre → 135°</p>
-        <p>Retour automatique à 90°</p>
+        <p>Crans de 5°</p>
     </div>
 
     <div class="panel">
         <h2>Moteur M1</h2>
-        <p>Joystick droit vertical</p>
+        <p>RT : marche avant</p>
+        <p>LT : marche arrière</p>
         <div class="value" id="speed">0</div>
-        <p id="direction">Arrêté</p>
-        <p>Haut = avant | Bas = arrière</p>
+        <p id="direction">Moteur arrêté</p>
     </div>
 
     <p id="gamepadStatus">Manette non détectée</p>
@@ -124,7 +127,9 @@ function receive(event) {
     buffer = lines.pop();
 
     for (const line of lines) {
-        if (line.trim()) log("Micro:bit → " + line.trim());
+        if (line.trim()) {
+            log("Micro:bit → " + line.trim());
+        }
     }
 }
 
@@ -141,7 +146,6 @@ function send(command) {
         } else {
             await rxCharacteristic.writeValueWithResponse(data);
         }
-
     }).catch(error => {
         log("Erreur : " + error.message);
     });
@@ -204,6 +208,14 @@ function disconnected() {
     txCharacteristic = null;
     status.textContent = "Non connecté";
     setButtons(false);
+
+    angleDisplay.textContent = "90°";
+    speedDisplay.textContent = "0";
+    directionDisplay.textContent = "Moteur arrêté";
+
+    lastAngle = null;
+    lastSpeed = null;
+
     log("Micro:bit déconnectée.");
 }
 
@@ -221,37 +233,39 @@ function updateGamepad() {
     if (pad) {
         gamepadStatus.textContent = "Manette : " + pad.id;
 
-        // JOYSTICK GAUCHE HORIZONTAL : SERVO
+        // JOYSTICK GAUCHE : SERVO P0
         let left = pad.axes[0] || 0;
 
-        if (Math.abs(left) < 0.12) left = 0;
+        if (Math.abs(left) < 0.12) {
+            left = 0;
+        }
 
         let angle = Math.round((90 + left * 45) / 5) * 5;
         angle = Math.max(45, Math.min(135, angle));
 
         angleDisplay.textContent = angle + "°";
 
-        // JOYSTICK DROIT VERTICAL : MOTEUR
-        let right = pad.axes[3] || 0;
+        // GACHETTES RT ET LT : MOTEUR M1
+        let rt = pad.buttons[7] ? pad.buttons[7].value : 0;
+        let lt = pad.buttons[6] ? pad.buttons[6].value : 0;
 
-        if (Math.abs(right) < 0.12) right = 0;
-
-        let speed = Math.round(-right * 255);
+        let speed = Math.round((rt - lt) * 255);
         speed = Math.max(-255, Math.min(255, speed));
 
         speedDisplay.textContent = Math.abs(speed);
 
         if (speed > 0) {
-            directionDisplay.textContent = "Marche avant";
+            directionDisplay.textContent = "Marche avant (RT)";
         } else if (speed < 0) {
-            directionDisplay.textContent = "Marche arrière";
+            directionDisplay.textContent = "Marche arrière (LT)";
         } else {
-            directionDisplay.textContent = "Arrêté";
+            directionDisplay.textContent = "Moteur arrêté";
         }
 
+        // ENVOI BLUETOOTH
         const now = Date.now();
 
-        if (rxCharacteristic && now - lastSendTime >= 35) {
+        if (rxCharacteristic && now - lastSendTime >= 40) {
             if (angle !== lastAngle) {
                 lastAngle = angle;
                 send("SERVO:" + angle);
@@ -268,6 +282,7 @@ function updateGamepad() {
     } else {
         gamepadStatus.textContent = "Manette non détectée";
 
+        // Arrêt de sécurité si la manette disparaît
         if (rxCharacteristic) {
             if (lastAngle !== 90) send("SERVO:90");
             if (lastSpeed !== 0) send("MOTEUR:0");
@@ -275,9 +290,10 @@ function updateGamepad() {
 
         lastAngle = 90;
         lastSpeed = 0;
+
         angleDisplay.textContent = "90°";
         speedDisplay.textContent = "0";
-        directionDisplay.textContent = "Arrêté";
+        directionDisplay.textContent = "Moteur arrêté";
     }
 
     requestAnimationFrame(updateGamepad);
