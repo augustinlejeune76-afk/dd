@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Commande servo micro:bit</title>
+<title>Commande moteur micro:bit</title>
 <style>
 body {
     background: #101827;
@@ -30,9 +30,9 @@ button {
 }
 button:disabled { opacity: 0.4; }
 #status { color: #fbbf24; }
-#angle {
-    font-size: 55px;
-    margin: 25px;
+#speed {
+    font-size: 45px;
+    margin: 20px;
 }
 #messages {
     background: #0f172a;
@@ -43,14 +43,11 @@ button:disabled { opacity: 0.4; }
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
-.instructions {
-    color: #cbd5e1;
-}
 </style>
 </head>
 <body>
 <main>
-    <h1>Commande du servo</h1>
+    <h1>Commande du moteur M1</h1>
 
     <p id="status">Non connecté</p>
 
@@ -59,19 +56,14 @@ button:disabled { opacity: 0.4; }
 
     <hr>
 
-    <h2>Commande manette Xbox</h2>
-
+    <h2>Manette Xbox</h2>
     <p id="gamepadStatus">Manette non détectée</p>
 
-    <div id="angle">90°</div>
+    <div id="speed">0</div>
+    <p id="direction">Moteur arrêté</p>
 
-    <p class="instructions">
-        Joystick gauche horizontal
-    </p>
-    <p>45° ← Gauche | Centre → 135°</p>
-    <p class="instructions">
-        Le servo revient à 90° lorsque le joystick revient au centre.
-    </p>
+    <p>Joystick droit vertical</p>
+    <p>↑ Avant | ↓ Arrière</p>
 
     <h3>Messages reçus</h3>
     <div id="messages">En attente...</div>
@@ -86,14 +78,14 @@ let device = null;
 let rxCharacteristic = null;
 let txCharacteristic = null;
 let buffer = "";
-
-let currentAngle = 90;
-let lastAngleSent = -1;
 let sending = Promise.resolve();
+let lastSpeed = null;
+let lastSendTime = 0;
 
 const status = document.getElementById("status");
 const messages = document.getElementById("messages");
-const angleDisplay = document.getElementById("angle");
+const speedDisplay = document.getElementById("speed");
+const directionDisplay = document.getElementById("direction");
 const gamepadStatus = document.getElementById("gamepadStatus");
 
 const connectBtn = document.getElementById("connect");
@@ -114,9 +106,7 @@ function receive(event) {
     buffer = lines.pop();
 
     for (const line of lines) {
-        if (line.trim()) {
-            log("Micro:bit → " + line.trim());
-        }
+        if (line.trim()) log("Micro:bit → " + line.trim());
     }
 }
 
@@ -177,12 +167,9 @@ async function connect() {
         status.textContent = "Connecté à " + device.name;
         setButtons(true);
 
-        currentAngle = 90;
-        lastAngleSent = 90;
-        angleDisplay.textContent = "90°";
-
+        lastSpeed = 0;
         log("Bluetooth prêt !");
-        await send("CENTRER");
+        await send("MOTEUR:0");
 
     } catch (error) {
         status.textContent = "Connexion échouée";
@@ -198,6 +185,8 @@ function disconnected() {
     txCharacteristic = null;
     status.textContent = "Non connecté";
     setButtons(false);
+    speedDisplay.textContent = "0";
+    directionDisplay.textContent = "Moteur arrêté";
     log("Micro:bit déconnectée.");
 }
 
@@ -215,28 +204,50 @@ function updateGamepad() {
     if (pad) {
         gamepadStatus.textContent = "Manette détectée : " + pad.id;
 
-        let stick = pad.axes[0] || 0;
+        // Axe vertical du joystick droit
+        let stick = pad.axes[3] || 0;
 
-        if (Math.abs(stick) < 0.15) {
+        // Petite zone morte au centre
+        if (Math.abs(stick) < 0.12) {
             stick = 0;
         }
 
-        // Transformation du joystick en crans de 5 degrés
-        const cran = Math.round((stick + 1) * 9);
-        const angle = 45 + cran * 5;
+        // Vers le haut = vitesse positive = marche avant
+        let speed = Math.round(-stick * 255);
 
-        if (angle !== currentAngle) {
-            currentAngle = angle;
-            angleDisplay.textContent = angle + "°";
+        speed = Math.max(-255, Math.min(255, speed));
 
-            if (rxCharacteristic && angle !== lastAngleSent) {
-                lastAngleSent = angle;
-                send("ANGLE:" + angle);
-            }
+        speedDisplay.textContent = Math.abs(speed);
+
+        if (speed > 0) {
+            directionDisplay.textContent = "Marche avant";
+        } else if (speed < 0) {
+            directionDisplay.textContent = "Marche arrière";
+        } else {
+            directionDisplay.textContent = "Moteur arrêté";
+        }
+
+        const now = Date.now();
+
+        if (
+            rxCharacteristic &&
+            (speed !== lastSpeed || now - lastSendTime > 250)
+        ) {
+            lastSpeed = speed;
+            lastSendTime = now;
+            send("MOTEUR:" + speed);
         }
 
     } else {
         gamepadStatus.textContent = "Manette non détectée";
+
+        if (lastSpeed !== 0 && rxCharacteristic) {
+            lastSpeed = 0;
+            send("MOTEUR:0");
+        }
+
+        speedDisplay.textContent = "0";
+        directionDisplay.textContent = "Moteur arrêté";
     }
 
     requestAnimationFrame(updateGamepad);
